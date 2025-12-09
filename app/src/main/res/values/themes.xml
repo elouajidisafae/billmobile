@@ -1,0 +1,14 @@
+<resources>
+    <style name="Theme.BillProMobile" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <!-- Couleurs principales -->
+        <item name="colorPrimary">#13386e</item>
+        <item name="colorPrimaryDark">#0d2a52</item>
+        <item name="colorAccent">#13386e</item>
+
+        <!-- Status bar bleue pour toute l'app -->
+        <item name="android:statusBarColor">#13386e</item>
+
+        <!-- Icônes blanches (batterie, heure, signal) -->
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
