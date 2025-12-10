@@ -2,15 +2,22 @@ package com.example.billpromobile.ui.auth
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.method.HideReturnsTransformationMethod
+import android.text.method.PasswordTransformationMethod
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.ViewModelProvider
 import com.example.billpromobile.data.local.preferences.AuthPreferences
 import com.example.billpromobile.data.repository.AuthRepository
 import com.example.billpromobile.databinding.ActivityLoginBinding
+import com.example.billpromobile.ui.auth.viewmodel.AuthViewModel
+import com.example.billpromobile.ui.auth.viewmodel.AuthViewModelFactory
 import com.example.billpromobile.ui.employe.EmployeDashboard
 import com.example.billpromobile.ui.manager.ManagerDashboard
 import com.example.billpromobile.ui.superadmin.SuperAdminDashboard
+import com.example.billpromobile.utils.NetworkUtils
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 class LoginActivity : AppCompatActivity() {
@@ -19,6 +26,8 @@ class LoginActivity : AppCompatActivity() {
     private lateinit var authPreferences: AuthPreferences
     private val authRepository = AuthRepository()
 
+    private var isPasswordVisible = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityLoginBinding.inflate(layoutInflater)
@@ -26,13 +35,60 @@ class LoginActivity : AppCompatActivity() {
 
         authPreferences = AuthPreferences(this)
 
-        // Si déjà connecté → redirection directe
+        // Déjà connecté ?
         if (authPreferences.isLoggedIn()) {
             redirectToDashboard(authPreferences.getRole()!!)
             finish()
             return
         }
 
+        // ViewModel
+        val authViewModel = ViewModelProvider(
+            this,
+            AuthViewModelFactory(authRepository)
+        )[AuthViewModel::class.java]
+
+        // Observer loginState
+        lifecycleScope.launch {
+            authViewModel.loginState.collectLatest { state ->
+                when (state) {
+                    is AuthViewModel.LoginState.Loading -> {
+                        Toast.makeText(
+                            this@LoginActivity,
+                            "Chargement...",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+
+                    is AuthViewModel.LoginState.Success -> {
+                        val data = state.response
+                        authPreferences.saveUser(data.token, data.role, data.nom, data.prenom)
+
+                        Toast.makeText(
+                            this@LoginActivity,
+                            "Bienvenue ${data.prenom} ${data.nom}",
+                            Toast.LENGTH_LONG
+                        ).show()
+
+                        redirectToDashboard(data.role)
+                    }
+
+                    is AuthViewModel.LoginState.Error -> {
+                        Toast.makeText(
+                            this@LoginActivity,
+                            state.message,
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+
+                    is AuthViewModel.LoginState.Idle -> {
+                        // Pas d'action nécessaire
+                    }
+                }
+            }
+        }
+
+        // Gestion bouton Se connecter
         binding.btnLogin.setOnClickListener {
             val email = binding.etEmail.text.toString().trim()
             val password = binding.etPassword.text.toString()
@@ -42,22 +98,27 @@ class LoginActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
 
-            lifecycleScope.launch {
-                try {
-                    val response = authRepository.login(email, password)
-                    if (response.isSuccessful && response.body() != null) {
-                        val data = response.body()!!
-                        authPreferences.saveUser(data.token, data.role, data.nom, data.prenom)
-
-                        Toast.makeText(this@LoginActivity, "Bienvenue ${data.prenom} ${data.nom}", Toast.LENGTH_LONG).show()
-                        redirectToDashboard(data.role)
-                    } else {
-                        Toast.makeText(this@LoginActivity, "Email ou mot de passe incorrect", Toast.LENGTH_LONG).show()
-                    }
-                } catch (e: Exception) {
-                    Toast.makeText(this@LoginActivity, "Erreur réseau", Toast.LENGTH_LONG).show()
-                }
+            if (!NetworkUtils.isConnected(this)) {
+                Toast.makeText(this, "Pas de connexion internet", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
+
+            authViewModel.login(email, password)
+        }
+
+        // 👁️ Gestion affichage / masquage du mot de passe
+        binding.ivTogglePassword.setOnClickListener {
+            isPasswordVisible = !isPasswordVisible
+
+            if (isPasswordVisible) {
+                binding.etPassword.transformationMethod =
+                    HideReturnsTransformationMethod.getInstance()
+            } else {
+                binding.etPassword.transformationMethod =
+                    PasswordTransformationMethod.getInstance()
+            }
+
+            binding.etPassword.setSelection(binding.etPassword.text.length)
         }
     }
 
